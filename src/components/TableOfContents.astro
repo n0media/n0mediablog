@@ -1,0 +1,204 @@
+---
+interface Heading {
+  id: string;
+  text: string;
+  level: number;
+}
+
+interface Props {
+  content?: string;
+}
+
+const { content = "" } = Astro.props;
+
+function extractHeadings(content: string): Heading[] {
+  const headings: Heading[] = [];
+  const segments = content.split(/```[\s\S]*?```|~~~[\s\S]*?~~~/g);
+  const idCounts = new Map<string, number>();
+
+  segments.forEach((segment) => {
+    const headingRegex = /^(#{1,6})\s+(.+)$/gm;
+    let match;
+
+    while ((match = headingRegex.exec(segment)) !== null) {
+      const level = match[1].length;
+      const text = match[2].trim();
+
+      let baseId = text
+        .toLowerCase()
+        .replace(/[^\w\s-]/g, "")
+        .replace(/\s+/g, "-")
+        .trim();
+
+      let id = baseId;
+      const count = idCounts.get(baseId) || 0;
+      if (count > 0) {
+        id = `${baseId}-${count}`;
+      }
+      idCounts.set(baseId, count + 1);
+
+      headings.push({ id, text, level });
+    }
+  });
+
+  return headings;
+}
+
+const headings = extractHeadings(content);
+---
+
+{
+  headings.length > 0 && (
+    <div class="toc-container">
+      <h3 class="toc-title mb-1.5 text-lg font-semibold">Table of Contents</h3>
+      <nav class="toc-nav">
+        <ul class="toc-list space-y-2">
+          {headings.map((heading) => (
+            <li class={`toc-item toc-level-${heading.level}`}>
+              <a
+                href={`#${heading.id}`}
+                class="toc-link text-muted-text dark:text-dark-muted-text hover:text-link dark:hover:text-dark-link block text-sm transition-colors duration-200"
+                style={`padding-left: ${(heading.level - 1) * 0.75}rem`}
+              >
+                {heading.text}
+              </a>
+            </li>
+          ))}
+        </ul>
+      </nav>
+    </div>
+  )
+}
+
+<style>
+  .toc-container {
+    position: sticky;
+    top: 5rem;
+    max-height: calc(100vh - 6rem);
+    overflow-y: auto;
+  }
+
+  .toc-link:hover {
+    text-decoration: underline;
+  }
+
+  html {
+    scroll-behavior: smooth;
+  }
+
+  html {
+    scroll-padding-top: 5rem;
+  }
+</style>
+
+<script>
+  declare global {
+    interface Window {
+      tocObserver?: IntersectionObserver;
+    }
+  }
+
+  function initTableOfContents() {
+    const prose = document.querySelector(".prose");
+    if (!prose) return;
+
+    const headings = prose.querySelectorAll("h1, h2, h3, h4, h5, h6");
+    const idCounts = new Map<string, number>();
+
+    headings.forEach((heading) => {
+      if (!heading.id) {
+        const text = heading.textContent || "";
+        let baseId = text
+          .toLowerCase()
+          .replace(/[^\w\s-]/g, "")
+          .replace(/\s+/g, "-")
+          .trim();
+
+        let id = baseId;
+        const count = idCounts.get(baseId) || 0;
+        if (count > 0) {
+          id = `${baseId}-${count}`;
+        }
+        idCounts.set(baseId, count + 1);
+
+        heading.id = id;
+      }
+
+      if (!heading.querySelector(".heading-link")) {
+        const anchor = document.createElement("a");
+        anchor.className = "heading-link";
+        anchor.href = `#${heading.id}`;
+        anchor.setAttribute("aria-label", "Link to this section");
+        anchor.textContent = "#";
+
+        anchor.addEventListener("click", (e) => {
+          e.preventDefault();
+          const url = new URL(window.location.href);
+          url.hash = heading.id;
+          navigator.clipboard
+            .writeText(url.toString())
+            .then(() => {
+              window.location.hash = heading.id;
+            })
+            .catch(console.error);
+        });
+
+        heading.appendChild(anchor);
+      }
+    });
+
+    if (window.tocObserver) {
+      window.tocObserver.disconnect();
+    }
+
+    const tocLinks = document.querySelectorAll(".toc-link");
+    const observerOptions = {
+      rootMargin: "-20% 0% -80% 0%",
+      threshold: 0,
+    };
+
+    const observer = new IntersectionObserver((entries) => {
+      entries.forEach((entry) => {
+        const id = entry.target.id;
+        const tocLink = document.querySelector(`.toc-link[href="#${id}"]`);
+
+        if (entry.isIntersecting) {
+          tocLinks.forEach((link) => link.classList.remove("toc-active"));
+          tocLink?.classList.add("toc-active");
+        }
+      });
+    }, observerOptions);
+
+    headings.forEach((heading) => {
+      if (heading.id) {
+        observer.observe(heading);
+      }
+    });
+
+    window.tocObserver = observer;
+  }
+
+  document.addEventListener("astro:page-load", initTableOfContents);
+
+  if (document.readyState !== "loading") {
+    initTableOfContents();
+  }
+
+  document.addEventListener(
+    "search-highlighting-complete",
+    initTableOfContents
+  );
+</script>
+
+<style is:global>
+  .toc-active {
+    color: var(--color-link) !important;
+    font-weight: inherit !important;
+    text-decoration: underline;
+    text-underline-offset: 2px;
+  }
+
+  .dark .toc-active {
+    color: var(--color-dark-link) !important;
+  }
+</style>
